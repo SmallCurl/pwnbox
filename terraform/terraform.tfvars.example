@@ -1,0 +1,10 @@
+# Prefer ./scripts/deploy.sh, which writes terraform.tfvars for you.
+# Token stays in the environment: export HCLOUD_TOKEN='...'
+
+ssh_public_key   = "ssh-ed25519 AAAA... comment"
+team_count       = 1
+team_prefix      = "team"
+players_per_team = 3
+location         = "fsn1"
+server_type      = "cx52"
+pwnbox_image     = "changemeor/gctf-pwnbox:v2"

@@ -1,0 +1,73 @@
+#cloud-config
+package_update: true
+packages:
+  - ca-certificates
+  - curl
+  - ufw
+
+write_files:
+  - path: /root/pwnbox.env
+    permissions: "0600"
+    owner: root:root
+    content: |
+      TEAM_NAME=${team_name}
+      PLAYER_COUNT=${player_count}
+%{ for idx, pw in passwords ~}
+      PLAYER${idx + 1}_PASSWORD=${pw}
+%{ endfor ~}
+
+  - path: /usr/local/sbin/gctf-pwnbox-boot.sh
+    permissions: "0700"
+    owner: root:root
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+      if ! command -v docker >/dev/null 2>&1; then
+        curl -fsSL https://get.docker.com | sh
+      fi
+      systemctl enable --now docker
+      if ! ufw status | grep -q "Status: active"; then
+        ufw default deny incoming
+        ufw default allow outgoing
+        ufw allow 22/tcp
+        ufw allow 3389/tcp
+        ufw --force enable
+      fi
+      if docker ps -a --format '{{.Names}}' | grep -qx pwnbox; then
+        docker start pwnbox
+        exit 0
+      fi
+      image='${pwnbox_image}'
+      ok=0
+      for _attempt in 1 2 3 4 5; do
+        if docker pull "$image"; then
+          ok=1
+          break
+        fi
+        sleep 15
+      done
+      if [[ "$ok" -ne 1 ]]; then
+        echo "docker pull failed: $image" >&2
+        exit 1
+      fi
+      player_count=$(awk -F= '/^PLAYER_COUNT=/{print $2}' /root/pwnbox.env)
+      volumes=(-v pwnbox-team:/team)
+      for ((i=1; i<=player_count; i++)); do
+        volumes+=(-v "pwnbox-player$${i}-home:/home/player$${i}")
+      done
+      docker run -d \
+        --name pwnbox \
+        --hostname '${team_name}-pwnbox' \
+        --restart unless-stopped \
+        --shm-size 2g \
+        --cap-add SYS_PTRACE \
+        --cap-add NET_RAW \
+        --security-opt seccomp=unconfined \
+        --env-file /root/pwnbox.env \
+        -p 3389:3389 \
+        -v /var/run/docker.sock:/var/run/docker.sock \
+        "$${volumes[@]}" \
+        "$image"
+
+runcmd:
+  - [bash, -lc, "/usr/local/sbin/gctf-pwnbox-boot.sh > /var/log/gctf-pwnbox-boot.log 2>&1"]
